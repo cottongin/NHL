@@ -117,7 +117,7 @@ class NHL(callbacks.Plugin):
         for the listing of games)."""
         date = dateutil.parser.parse(iso)
         date_eastern = date.astimezone(pytz.timezone('US/Eastern'))
-        eastern_time = date_eastern.strftime('%-I:%M %p')
+        eastern_time = date_eastern.strftime('%A %-I:%M %p')
         return "{} ET".format(eastern_time) # Strip the seconds
 
     def _stripDateSeparators(self, date_string):
@@ -358,6 +358,48 @@ class NHL(callbacks.Plugin):
         self._today_scores_cached_url = url
         self._today_scores_last_modified_time = response.headers['last-modified']
         self._today_scores_last_modified_data = response.read()
+
+    # TBD add args for round results
+    @wrap
+    def nhlplayoffs(self, irc, msg, args):
+        """
+        Returns NHL playoff results for current round
+        """
+
+        # TBD switch out season=YYYYYYYY automatically
+        url = ("https://statsapi.web.nhl.com/api/v1/tournaments/playoffs" + 
+              "?expand=round.series&season=20162017&site=en_nhl")
+
+        # Fetch content
+        content = requests.get(url)
+        content_json = json.loads(content.text)
+        # Get rounds
+        current_round = content_json["defaultRound"]
+        round_index = current_round - 1
+        round_info = content_json["rounds"][round_index]
+
+        round_name = round_info["names"]["name"]
+
+        # Parse relevant info out of JSON
+        padding = 0
+        matchups = []
+        for item in round_info["series"]:
+            record = item["currentGame"]["seriesSummary"]["seriesStatus"]
+            matchups.append({
+                "name": item["names"]["matchupShortName"],
+                "record": record,
+                "next": self._ISODateToEasternTime(
+                    item["currentGame"]["seriesSummary"]["gameTime"])})
+            # Find longest string
+            padding = len(record) if len(record) > padding else padding
+
+        # Output
+        irc.reply(round_name)
+        for item in matchups:
+            irc.reply('{0} | {1:{width}} | {2}'.format(item["name"], 
+                                                       item["record"], 
+                                                       item["next"],
+                                                       width=str(padding)))
 
     def summary(self, irc, msg, args, optargs):
         """<team> [<date>]
